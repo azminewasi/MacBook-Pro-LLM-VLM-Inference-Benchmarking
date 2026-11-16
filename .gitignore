@@ -1,0 +1,19 @@
+# logs and temp
+*.log
+tmp/
+tmp/*
+*.tmp
+.DS_Store
+
+# environment, secrets, caches
+.venv/
+.wandb_key
+.env
+__pycache__/
+*.pyc
+
+# local W&B cache (runs are online) and large converted models
+wandb/
+models/
+
+# KEEP: results/ (per-sample .jsonl, summary .csv), reports and analysis
