@@ -16,7 +16,7 @@ from mlx_vlm.utils import load_config
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--model", required=True); ap.add_argument("--tag", required=True)
-ap.add_argument("--project", default="macbook-llm-inference"); ap.add_argument("--cap-mult", type=int, default=None)
+ap.add_argument("--project", default="macbook-llm-mitigation"); ap.add_argument("--cap-mult", type=int, default=None)
 ap.add_argument("--temperature", type=float, default=0.6); ap.add_argument("--top-p", type=float, default=0.95)
 ap.add_argument("--top-k", type=int, default=20); ap.add_argument("--presence-penalty", type=float, default=1.5)
 ap.add_argument("--presence-context", type=int, default=512, help="how many recent tokens the presence penalty looks back over")

@@ -62,7 +62,7 @@ mitigate_truncated.py     mitigation experiment: mitigate truncated+wrong thinki
 scripts/
   01_run_main.sh       main benchmark, 400 inferences/model, 0.8B -> 2B -> 4B -> 9B (4-bit)
   02_run_8x.sh         long-thinking runs (8x token caps, 20 samples/task); optional args select models
-  03_run_mitigate.sh      mitigate experiment (run after 01/02)
+  03_run_mitigate.sh      mitigation experiment, 10 samples per task (run after 01/02); logs to W&B project macbook-llm-mitigation
   04_cleanup.sh        dry-run by default; --yes deletes tmp/, models/, wandb/ and the HF model cache
   common.sh            shared helpers (skip-if-finished, 9B conversion)
   archive/             superseded one-off queue and watcher scripts
