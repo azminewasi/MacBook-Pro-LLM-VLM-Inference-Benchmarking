@@ -1,11 +1,11 @@
 """Mitigation experiment: re-run ONLY the thinking-on samples that failed to finish (truncated and wrong) with
 Qwen's recommended sampling (top-k 20) + a presence penalty to curb repetition loops. Same prompts, same caps.
 
-  python retry_truncated.py --model Qwen/Qwen3.5-0.8B --tag 0.8B            # retries failures in results/0.8B.jsonl
-  python retry_truncated.py --model Qwen/Qwen3.5-0.8B --tag 0.8B-think8x    # 8x-cap run (cap-mult auto = 8)
+  python mitigate_truncated.py --model Qwen/Qwen3.5-0.8B --tag 0.8B            # mitigation runs failures in results/0.8B.jsonl
+  python mitigate_truncated.py --model Qwen/Qwen3.5-0.8B --tag 0.8B-think8x    # 8x-cap run (cap-mult auto = 8)
 
-Writes results/<tag>-retry.jsonl (resumable) + results/<tag>-retry_summary.csv and logs to W&B (online) as run
-'qwen3.5-<tag>-retry'. The ORIGINAL results are never modified; retries are extra rows to compare against.
+Writes results/<tag>-mitigate.jsonl (resumable) + results/<tag>-mitigate_summary.csv and logs to W&B (online) as run
+'qwen3.5-<tag>-mitigate'. The ORIGINAL results are never modified; mitigation runs are extra rows to compare against.
 NOTE: the models must still be available (run BEFORE the cleanup of the HF cache / models/ folder)."""
 import argparse, json, os, re, subprocess, threading, time
 import psutil, mlx.core as mx
@@ -21,12 +21,12 @@ ap.add_argument("--temperature", type=float, default=0.6); ap.add_argument("--to
 ap.add_argument("--top-k", type=int, default=20); ap.add_argument("--presence-penalty", type=float, default=1.5)
 ap.add_argument("--presence-context", type=int, default=512, help="how many recent tokens the presence penalty looks back over")
 ap.add_argument("--repetition-penalty", type=float, default=None)
-ap.add_argument("--include-correct-truncated", action="store_true", help="also retry truncated samples that were already scored correct")
-ap.add_argument("--seed", type=int, default=1234); ap.add_argument("--dtype", default="bf16"); ap.add_argument("--max-samples", type=int, default=0, help="cap on total samples retried")
+ap.add_argument("--include-correct-truncated", action="store_true", help="also mitigate truncated samples that were already scored correct")
+ap.add_argument("--seed", type=int, default=1234); ap.add_argument("--dtype", default="bf16"); ap.add_argument("--max-samples", type=int, default=0, help="cap on total samples mitigated")
 ap.add_argument("--max-per-task", type=int, default=0, help="cap per task (random, seeded pick of the failures); 0 = all")
 args = ap.parse_args()
 if args.cap_mult is None: args.cap_mult = 8 if "think8x" in args.tag else 1
-SRC, OUT = f"results/{args.tag}.jsonl", f"results/{args.tag}-retry.jsonl"
+SRC, OUT = f"results/{args.tag}.jsonl", f"results/{args.tag}-mitigate.jsonl"
 os.makedirs("tmp", exist_ok=True); mx.random.seed(args.seed)
 
 # ---------- same prompts / scoring as bench.py ----------
@@ -79,7 +79,7 @@ def thermal():
     o = subprocess.run(["pmset", "-g", "therm"], capture_output=True, text=True).stdout
     m = re.search(r"CPU_Speed_Limit\s*=\s*(\d+)", o); return int(m.group(1)) if m else 100
 
-# ---------- select samples to retry ----------
+# ---------- select samples to mitigate ----------
 src = [json.loads(l) for l in open(SRC)]
 todo = [r for r in src if r["thinking"] and r["truncated"] and (args.include_correct_truncated or not r["correct"])]
 if args.max_per_task:
@@ -90,13 +90,13 @@ if args.max_per_task:
     todo = picked
 if args.max_samples: todo = todo[: args.max_samples]
 n_think = sum(1 for r in src if r["thinking"])
-print(f"{args.tag}: {len(todo)} of {n_think} thinking-on samples to retry (caps x{args.cap_mult})", flush=True)
+print(f"{args.tag}: {len(todo)} of {n_think} thinking-on samples to mitigate (caps x{args.cap_mult})", flush=True)
 
 model, processor = load(args.model); cfg = load_config(args.model)
 import wandb
-run = wandb.init(project=args.project, name=f"qwen3.5-{args.tag}-retry", reinit=True,
-    tags=[args.tag.split("-")[0], args.dtype, "retry", "mitigation", "topk20", "presence-penalty", "8x-thinking" if args.cap_mult > 1 else "1x-thinking"], config=dict(
-    model=args.model, source_tag=args.tag, kind="retry-truncated", cap_mult=args.cap_mult, n_retry=len(todo), dtype=args.dtype,
+run = wandb.init(project=args.project, name=f"qwen3.5-{args.tag}-mitigate", reinit=True,
+    tags=[args.tag.split("-")[0], args.dtype, "mitigate", "mitigation", "topk20", "presence-penalty", "8x-thinking" if args.cap_mult > 1 else "1x-thinking"], config=dict(
+    model=args.model, source_tag=args.tag, kind="mitigate-truncated", cap_mult=args.cap_mult, n_mitigate=len(todo), dtype=args.dtype,
     temperature=args.temperature, top_p=args.top_p, top_k=args.top_k, presence_penalty=args.presence_penalty,
     presence_context=args.presence_context, repetition_penalty=args.repetition_penalty, seed=args.seed, backend="mlx", mlx=mx.__version__,
     chip="Apple M5", ram_gb=16))
@@ -125,8 +125,8 @@ for r in todo:
                rss_gb=psutil.Process().memory_info().rss / 2**30, thermal_speed_limit=thermal(),
                orig_correct=r["correct"], orig_truncated=r["truncated"], orig_gen_tokens=r["gen_tokens"], rescued=int(ok and not r["correct"]))
     fout.write(json.dumps(rec) + "\n"); fout.flush()
-    wandb.log({f"retry/{key}": v for key, v in rec.items() if isinstance(v, (int, float)) and v is not None} | {"retry/running_rescue_rate": ok_run / k})
-    print(f"{args.tag} retry {k}/{len(todo) - len(done)} {r['task']} id={r['id']} ok={ok} finish={last.finish_reason} gen={last.generation_tokens} {last.generation_tps:.1f}tok/s rescued_so_far={ok_run}", flush=True)
+    wandb.log({f"mitigate/{key}": v for key, v in rec.items() if isinstance(v, (int, float)) and v is not None} | {"mitigate/running_rescue_rate": ok_run / k})
+    print(f"{args.tag} mitigate {k}/{len(todo) - len(done)} {r['task']} id={r['id']} ok={ok} finish={last.finish_reason} gen={last.generation_tokens} {last.generation_tps:.1f}tok/s rescued_so_far={ok_run}", flush=True)
 
 # ---------- summary: before vs after ----------
 import pandas as pd
@@ -136,13 +136,13 @@ rows = []
 for task, b in base.groupby("task"):
     n = len(b); n_new = new[new.task == task] if len(new) else new
     resc = int(n_new.rescued.sum()) if len(n_new) else 0
-    rows.append(dict(tag=args.tag, task=task, n_total=n, orig_acc=b.correct.mean(), orig_trunc=b.truncated.mean(), n_retried=len(n_new),
+    rows.append(dict(tag=args.tag, task=task, n_total=n, orig_acc=b.correct.mean(), orig_trunc=b.truncated.mean(), n_mitigated=len(n_new),
                      rescued=resc, rescue_rate=resc / len(n_new) if len(n_new) else None,
-                     retry_still_truncated=n_new.truncated.mean() if len(n_new) else None,
-                     acc_after_retry=(b.correct.sum() + resc) / n, acc_gain=resc / n,
-                     retry_mean_gen_tokens=n_new.gen_tokens.mean() if len(n_new) else None, retry_mean_latency_s=n_new.total_s.mean() if len(n_new) else None))
-summ = pd.DataFrame(rows); summ.to_csv(f"results/{args.tag}-retry_summary.csv", index=False)
-wandb.log({"retry_summary": wandb.Table(dataframe=summ)})
+                     mitigate_still_truncated=n_new.truncated.mean() if len(n_new) else None,
+                     acc_after_mitigate=(b.correct.sum() + resc) / n, acc_gain=resc / n,
+                     mitigate_mean_gen_tokens=n_new.gen_tokens.mean() if len(n_new) else None, mitigate_mean_latency_s=n_new.total_s.mean() if len(n_new) else None))
+summ = pd.DataFrame(rows); summ.to_csv(f"results/{args.tag}-mitigate_summary.csv", index=False)
+wandb.log({"mitigate_summary": wandb.Table(dataframe=summ)})
 for _, x in summ.iterrows():
     for key, v in x.items():
         if isinstance(v, (int, float)) and v == v: run.summary[f"{x.task}/{key}"] = v

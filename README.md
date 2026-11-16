@@ -58,11 +58,11 @@ Full per-sample data is in `results/` (`<model>.jsonl`, `<model>_summary.csv`, `
 ```
 bench.py               benchmark harness (one model per call; resumable via results/<tag>.jsonl)
 compare.py             cross-model comparison: CIs, paired tests, cost per correct answer
-retry_truncated.py     mitigation experiment: retry truncated+wrong thinking samples with top-k 20 + presence penalty
+mitigate_truncated.py     mitigation experiment: mitigate truncated+wrong thinking samples with top-k 20 + presence penalty
 scripts/
   01_run_main.sh       main benchmark, 400 inferences/model, 0.8B -> 2B -> 4B -> 9B (4-bit)
   02_run_8x.sh         long-thinking runs (8x token caps, 20 samples/task); optional args select models
-  03_run_retry.sh      retry experiment (run after 01/02)
+  03_run_mitigate.sh      mitigate experiment (run after 01/02)
   04_cleanup.sh        dry-run by default; --yes deletes tmp/, models/, wandb/ and the HF model cache
   common.sh            shared helpers (skip-if-finished, 9B conversion)
   archive/             superseded one-off queue and watcher scripts
@@ -73,7 +73,7 @@ All scripts are resumable and skip finished runs, so they can be re-run safely; 
 
 ## Reproduce
 ```bash
-# one-shot: scripts/01_run_main.sh && scripts/02_run_8x.sh && scripts/03_run_retry.sh   (or the manual steps below)
+# one-shot: scripts/01_run_main.sh && scripts/02_run_8x.sh && scripts/03_run_mitigate.sh   (or the manual steps below)
 uv venv --python 3.12 .venv && source .venv/bin/activate
 uv pip install mlx-lm mlx-vlm wandb datasets huggingface_hub psutil pillow torch torchvision pandas
 export WANDB_API_KEY=...        # runs log online to W&B project "macbook-llm-inference"

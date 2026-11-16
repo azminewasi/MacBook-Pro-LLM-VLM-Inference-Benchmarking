@@ -11,11 +11,11 @@ run_bench() {
   [[ -f results/${tag}_summary.csv ]] && { echo "skip $tag (finished)"; return; }
   python bench.py --model "$model" --tag "$tag" "$@"
 }
-# run_retry <tag> <model> [extra args]  -> skipped if results/<tag>-retry_summary.csv exists.
-run_retry() {
+# run_mitigate <tag> <model> [extra args]  -> skipped if results/<tag>-mitigate_summary.csv exists.
+run_mitigate() {
   local tag=$1 model=$2; shift 2
-  [[ -f results/${tag}-retry_summary.csv ]] && { echo "skip retry $tag (finished)"; return; }
-  python retry_truncated.py --model "$model" --tag "$tag" "$@"
+  [[ -f results/${tag}-mitigate_summary.csv ]] && { echo "skip mitigate $tag (finished)"; return; }
+  python mitigate_truncated.py --model "$model" --tag "$tag" "$@"
 }
 NINE=models/Qwen3.5-9B-4bit
 ensure_9b() {   # one-time 4-bit conversion of the 9B (19 GB bf16 does not fit in 16 GB RAM)
