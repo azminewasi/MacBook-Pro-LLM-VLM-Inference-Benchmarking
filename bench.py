@@ -108,7 +108,8 @@ def run_one(prompt_text, img, think, max_tokens):
 
 # ---------- run ----------
 import wandb
-run = wandb.init(project=args.project, name=f"qwen3.5-{args.tag}", reinit=True, config=dict(
+run = wandb.init(project=args.project, name=f"qwen3.5-{args.tag}", reinit=True,
+    tags=[args.tag.split("-")[0], args.dtype, "inference", "8x-thinking" if args.cap_mult > 1 else "main-benchmark"], config=dict(
     model=args.model, tag=args.tag, n=args.n, dtype=args.dtype, cap_mult=args.cap_mult, backend="mlx", mlx=mx.__version__,
     chip="Apple M5", ram_gb=16, load_time_s=load_s, load_mem_gb=load_mem))
 wandb.define_metric("sample_idx")

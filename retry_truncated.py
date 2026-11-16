@@ -94,7 +94,8 @@ print(f"{args.tag}: {len(todo)} of {n_think} thinking-on samples to retry (caps 
 
 model, processor = load(args.model); cfg = load_config(args.model)
 import wandb
-run = wandb.init(project=args.project, name=f"qwen3.5-{args.tag}-retry", reinit=True, config=dict(
+run = wandb.init(project=args.project, name=f"qwen3.5-{args.tag}-retry", reinit=True,
+    tags=[args.tag.split("-")[0], args.dtype, "retry", "mitigation", "topk20", "presence-penalty", "8x-thinking" if args.cap_mult > 1 else "1x-thinking"], config=dict(
     model=args.model, source_tag=args.tag, kind="retry-truncated", cap_mult=args.cap_mult, n_retry=len(todo), dtype=args.dtype,
     temperature=args.temperature, top_p=args.top_p, top_k=args.top_k, presence_penalty=args.presence_penalty,
     presence_context=args.presence_context, repetition_penalty=args.repetition_penalty, seed=args.seed, backend="mlx", mlx=mx.__version__,
