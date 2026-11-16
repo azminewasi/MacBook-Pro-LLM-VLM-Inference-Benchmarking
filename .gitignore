@@ -19,3 +19,4 @@ models/
 # KEEP: results/ (per-sample .jsonl, summary .csv), reports and analysis
 
 logs/
+scripts/archive/
