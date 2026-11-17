@@ -1,10 +1,8 @@
-# Mac LLM/VLM Inference Testing
+# MacBook Pro - LLM/VLM Inference Benchmarking
 
 How far can a single 16 GB MacBook go at running modern LLMs and VLMs locally? This project benchmarks
 **Qwen3.5 (0.8B, 2B, 4B, 9B)** on an **Apple M5 MacBook** with [MLX](https://github.com/ml-explore/mlx), measuring
 quality, speed, memory and system load for every single inference, and logging everything to Weights & Biases.
-
-> **Status:** all runs are complete: 4 models x 400 inferences, the 8x long-thinking runs, and the mitigation experiment. The full analysis with plots is in **[`results/report.html`](results/report.html)** (open it in a browser; regenerate with `python analysis/make_report.py`).
 
 ## Overview
 - **Hardware:** Apple M5, 10 CPU/GPU cores, 16 GB unified memory, macOS 26 (Darwin 25.6), plugged in. MLX 0.32, mlx-vlm 0.7.12.
