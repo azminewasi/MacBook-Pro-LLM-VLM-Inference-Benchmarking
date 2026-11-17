@@ -65,7 +65,6 @@ scripts/
   03_run_mitigate.sh      mitigation experiment, 10 samples per task (run after 01/02); logs to W&B project macbook-llm-mitigation
   04_cleanup.sh        dry-run by default; --yes deletes tmp/, models/, wandb/ and the HF model cache
   common.sh            shared helpers (skip-if-finished, 9B conversion)
-  archive/             superseded one-off queue and watcher scripts
 results/               per-sample records (.jsonl), summaries (.csv), comparison tables (kept)
 logs/                  console logs (git-ignored)
 ```
