@@ -5,6 +5,8 @@ How far can a single 16 GB MacBook go at running modern LLMs and VLMs locally? T
 quality, speed, memory and system load for every single inference, and logging everything to Weights & Biases.
 
 > **Status:** all runs are complete: 4 models x 400 inferences, the 8x long-thinking runs, and the mitigation experiment. The full analysis with plots is in **[`results/report.html`](results/report.html)** (open it in a browser; regenerate with `python analysis/make_report.py`).
+>
+> Also: **[`JOURNAL.md`](JOURNAL.md)** is the running research journal (what we tried, what happened, why, what is still open).
 
 ## Overview
 - **Hardware:** Apple M5, 10 CPU/GPU cores, 16 GB unified memory, macOS 26 (Darwin 25.6), plugged in. MLX 0.32, mlx-vlm 0.7.12.
