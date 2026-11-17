@@ -75,23 +75,24 @@ def gbars(groups, series, fmt="{:.0f}%", ymax=None, log=False, ylabel="", yref=N
     legend = '<div class="legend">' + "".join(f'<span><i class="sw {SC[i]}"></i>{esc(n)}</span>' for i, (n, _, _) in enumerate(series)) + "</div>"
     return legend + "".join(out)
 
-def stacked(groups, parts, height=260):
+def stacked(groups, parts, height=260, fmt="{}", ymax=None, yref=None, minlab=0):
     """parts: list of (name, [counts per group]) stacked; shows counts."""
     W, H, L, Rr, T, B = 760, height, 58, 12, 16, 40
-    tot = [sum(p[1][i] for p in parts) for i in range(len(groups))]; mx = max(tot) * 1.1
+    tot = [sum(p[1][i] for p in parts) for i in range(len(groups))]; mx = ymax or max(tot) * 1.1
     ph, pw = H - T - B, W - L - Rr
-    step = min([c * 10 ** e for e in range(0, 4) for c in (1, 2, 5)], key=lambda c: abs(mx / c - 4))
+    step = min([c * 10.0 ** e for e in range(-1, 4) for c in (1, 2, 5)], key=lambda c: abs(mx / c - 4))
     y = lambda v: T + ph * (1 - v / (step * np.ceil(mx / step)))
     out = [f'<svg viewBox="0 0 {W} {H}" class="chart" role="img">']
-    for t in range(0, int(step * np.ceil(mx / step)) + 1, step):
-        out.append(f'<line x1="{L}" x2="{W-Rr}" y1="{y(t):.1f}" y2="{y(t):.1f}" class="grid"/><text x="{L-6}" y="{y(t)+3:.1f}" class="tick" text-anchor="end">{t}</text>')
+    for t in np.arange(0, step * np.ceil(mx / step) + step / 2, step):
+        out.append(f'<line x1="{L}" x2="{W-Rr}" y1="{y(t):.1f}" y2="{y(t):.1f}" class="grid"/><text x="{L-6}" y="{y(t)+3:.1f}" class="tick" text-anchor="end">{t:g}</text>')
+    if yref: out.append(f'<line x1="{L}" x2="{W-Rr}" y1="{y(yref[0]):.1f}" y2="{y(yref[0]):.1f}" class="ref"/><text x="{W-Rr-2}" y="{y(yref[0])-4:.1f}" class="tick reflab" text-anchor="end">{esc(yref[1])}</text>')
     gw = pw / len(groups); bw = min(70, gw * 0.55)
     for gi, g in enumerate(groups):
         x = L + gw * gi + gw / 2 - bw / 2; base = 0
         for si, (name, vs) in enumerate(parts):
             v = vs[gi]
             if v:
-                out.append(f'<rect x="{x:.1f}" y="{y(base+v):.1f}" width="{bw:.1f}" height="{y(base)-y(base+v):.1f}" class="{SC[si+1 if si else 0]}"><title>{esc(name)}: {v}</title></rect><text x="{x+bw/2:.1f}" y="{(y(base)+y(base+v))/2+4:.1f}" class="vali" text-anchor="middle">{v}</text>')
+                out.append(f'<rect x="{x:.1f}" y="{y(base+v):.1f}" width="{bw:.1f}" height="{y(base)-y(base+v):.1f}" class="{SC[si+1 if si else 0]}"><title>{esc(name)}: {esc(fmt.format(v))}</title></rect>' + (f'<text x="{x+bw/2:.1f}" y="{(y(base)+y(base+v))/2+4:.1f}" class="vali" text-anchor="middle">{esc(fmt.format(v))}</text>' if v >= minlab else ""))
             base += v
         for li, line in enumerate(g.split("\n")):
             out.append(f'<text x="{x+bw/2:.1f}" y="{H-B+16+li*13}" class="glab" text-anchor="middle">{esc(line)}</text>')
@@ -200,6 +201,37 @@ GL = [("TTFT", "Time To First Token: delay from sending the prompt until the fir
       ("Sign test", "Paired exact binomial test on questions where exactly one of two models is correct.")]
 T_gl = tbl(["Term", "Meaning"], [[f"<b>{esc(a)}</b>", esc(b)] for a, b in GL])
 
+# ------------------------------------------------------------------ capability & limits
+BASE_GB = float(np.median(D1["0.8B"].ram_used_gb_avg)) - LOAD_GB["0.8B"]       # RAM used by macOS + python + libs (0.8B run minus its weights)
+work = {m: max(D1[m].peak_mem_gb.max(), D8[m].peak_mem_gb.max()) - LOAD_GB[m] for m in M}   # working memory above weights (activations + cache)
+def extra_at_max(D, m):
+    d = D[m].assign(tot=lambda x: x.prompt_tokens + x.gen_tokens); r = d.loc[d.tot.idxmax()]; return int(r.tot), r.peak_mem_gb - LOAD_GB[m]
+ctx1 = {m: extra_at_max(D1, m) for m in M}; ctx8 = {m: extra_at_max(D8, m) for m in M}
+c_budget = stacked([LABEL[m] for m in M], [("macOS + background (measured ≈%.1f GB)" % BASE_GB, [BASE_GB] * 4), ("model weights", [LOAD_GB[m] for m in M]),
+                    ("working memory (activations + cache)", [work[m] for m in M]), ("left free", [max(0, 16 - BASE_GB - LOAD_GB[m] - work[m]) for m in M])],
+                   fmt="{:.1f}", ymax=16, yref=(16, "16 GB unified memory"), minlab=0.6, height=300)
+c_ctx = gbars([LABEL[m] for m in M], [("longest 1x run (~3k tokens)", [ctx1[m][1] for m in M], None), ("longest 8x run (16-25k tokens)", [ctx8[m][1] for m in M], None)], fmt="{:.2f}", ylabel="GB above weights")
+BW = float(np.mean(list(bw_est.values())))      # measured effective decode bandwidth, GB/s
+USABLE = 16 - BASE_GB
+def fit_row(name, params_b, prec, bpp, measured=None):
+    gb = LOAD_GB[measured] if measured else params_b * bpp
+    need = gb + 1.0
+    status = "fits comfortably" if need <= USABLE - 1.5 else ("tight (swap likely)" if need <= USABLE + 1.0 else "does not fit")
+    tps = f"{dec[measured, 'gsm8k_text', True]:.0f} (measured)" if measured else (f"≈{BW/gb:.0f}" if need <= USABLE + 1.0 else "–")
+    return [name, prec, f"{gb:.1f}" + ("" if measured else " (est.)"), status, tps]
+FITS = [fit_row("0.8B", 0.8, "bf16", 2, "0.8B"), fit_row("2B", 2, "bf16", 2, "2B"), fit_row("4B", 4, "bf16", 2, "4B"), fit_row("9B", 9, "4-bit", 0.61, "9B-4bit"),
+        fit_row("9B", 9, "bf16", 2.1), fit_row("8B-class", 8, "8-bit", 1.06), fit_row("14B-class", 14, "4-bit", 0.6), fit_row("14B-class", 14, "8-bit", 1.06), fit_row("32B-class", 32, "4-bit", 0.6)]
+T_fit = tbl(["Model size", "Precision", "Weights GB", "On this 16 GB Mac", "Decode tok/s (thinking on)"], [[esc(c) for c in r] for r in FITS])
+N_GSM, N_AI2D = 1319, 3088      # full GSM8K test split, full AI2D test split
+def hrs(m, t, th): return (N_GSM if t == "gsm8k_text" else N_AI2D) * lat[m, t, th] / 3600
+T_cost = tbl(["Model", "GSM8K (1,319) thinking off", "GSM8K thinking on", "AI2D (3,088) thinking off", "AI2D thinking on"],
+             [[LABEL[m]] + [f"{hrs(m, t, th):.1f} h" for t, th in COND] for m in M])
+prof = lambda t, th: (np.mean([cell(m, t, th).prompt_tokens.mean() for m in M]), np.mean([genk[m, t, th] for m in M]))
+T_prof = tbl(["Task", "Prompt tokens", "Answer tokens (thinking off)", "Answer tokens (thinking on, 1x cap)", "What dominates the cost"],
+             [["GSM8K (text math)", f"{prof('gsm8k_text', False)[0]:.0f}", f"{prof('gsm8k_text', False)[1]:.0f}", f"{prof('gsm8k_text', True)[1]:.0f}", "generated reasoning tokens (decode)"],
+              ["AI2D (diagram MCQ, image ≤896 px)", f"{prof('ai2d_vision', False)[0]:.0f}", f"{prof('ai2d_vision', False)[1]:.0f}", f"{prof('ai2d_vision', True)[1]:.0f}", "image prefill when off; reasoning tokens when on"]])
+tok_day = {m: dec[m, "gsm8k_text", True] * 86400 / 1e6 for m in M}
+
 # ------------------------------------------------------------------ narrative numbers
 g = lambda m, t, th: f"{100*acc[m,t,th]:.0f}%"
 total_h = sum(sum(v) for v in hours.values())
@@ -292,7 +324,35 @@ HTML = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
 
 <h2>8. Full results table</h2>{T_full}
 
-<h2>9. Glossary and method notes</h2>{T_gl}
+<h2>9. MacBook capability and limits</h2>
+<p>What this 16 GB M5 MacBook Pro can and cannot do for local LLM/VLM <b>inference and evaluation</b>, measured with the runs above. (Training capability is covered in the sibling post-training report.)</p>
+<div class="cards">
+<div class="card"><b>≈{USABLE:.1f} GB</b><span>usable for a model: macOS and background services keep ≈{BASE_GB:.1f} GB in use even with apps closed</span></div>
+<div class="card"><b>≈{BW:.0f} GB/s</b><span>effective memory bandwidth while decoding; tokens/s ≈ {BW:.0f} ÷ weight GB</span></div>
+<div class="card"><b>+{max(ctx8[m][1] for m in M):.1f} GB</b><span>extra memory for a ~25k-token generation: context is almost free</span></div>
+<div class="card"><b>{total_h:.0f} h</b><span>of generation without throttling; peak RAM {max(max(D1[m].ram_used_gb_max) for m in M):.1f} GB</span></div>
+</div>
+<h3>Memory budget</h3>
+<div class="fig"><div class="cap">Where the 16 GB goes (peak working memory taken over all runs). The 4B in bf16 leaves almost nothing free, which is why swap appeared; the 4-bit 9B has more headroom than the 4B.</div>{c_budget}</div>
+<h3>Context length costs almost no memory</h3>
+<div class="fig"><div class="cap">Peak MLX memory above the weights for the longest request in each set. Qwen3.5 mostly uses gated-delta (linear) attention layers whose state does not grow with length, so a 25k-token thinking trace adds under 1 GB. Memory, not context length, is what decides the model size you can run.</div>{c_ctx}</div>
+<h3>What fits</h3>
+<p>Rows marked "(est.)" are extrapolations: weights = parameters × bytes per parameter (bf16 2, 8-bit ≈1.06, 4-bit ≈0.6), plus ~1 GB working memory against the usable ≈{USABLE:.1f} GB; decode speed = measured bandwidth ÷ weight size (this rule predicts the four measured models within about 15%).</p>{T_fit}
+<h3>What an experiment costs in time</h3>
+<p>Time, not memory, is the practical limit for thinking-mode evaluation. Time for a <b>full</b> benchmark split at the measured mean latencies (batch size 1; thinking-on at the 1x caps used here):</p>{T_cost}
+<p>Throughput is a hard physical ceiling: decoding streams all weights for every token, so at thinking-on speeds the machine generates about {tok_day['0.8B']:.1f} M tokens/day with the 0.8B, {tok_day['2B']:.1f} M with the 2B, {tok_day['4B']:.1f} M with the 4B and {tok_day['9B-4bit']:.1f} M with the 9B (4-bit).</p>
+<h3>Datasets and what drives their cost</h3>{T_prof}
+<p>Cost scales with <i>generated</i> tokens, not prompt size. Short-answer multiple-choice with thinking off (AI2D off: a few tokens) is cheap for every model; chain-of-thought math (GSM8K on: ~2,000 tokens) is 100-1000x more expensive per question. When choosing an evaluation set for this machine, estimate answer length first.</p>
+<h3>Verdict</h3>
+<ul>
+<li><b>Comfortable:</b> bf16 models up to 2B (4-7 GB free) and a 4-bit 9B (3 GB free); thinking traces up to 25k tokens; multi-hour unattended runs on AC power with no throttling.</li>
+<li><b>Tight:</b> 4B in bf16 (about {LOAD_GB['4B']+work['4B']:.1f} GB with a long generation; macOS started swapping but decode speed did not drop), and, by extrapolation, 14B-class at 4-bit or 8B-class at 8-bit (~8.5 GB of weights): anything above ~8 GB of weights.</li>
+<li><b>Not possible:</b> 9B in bf16 (about 19 GB) and 32B-class models even at 4-bit.</li>
+<li><b>Slow, not impossible:</b> thinking-mode evaluation of the larger models: a full GSM8K test split with the 4B thinking on takes about {hrs('4B','gsm8k_text',True):.0f} h at 1x caps and much longer at 8x. Sample 100 questions, as done here, or run non-thinking.</li>
+<li><b>Not measured here:</b> batched or concurrent generation (decode is bandwidth-bound, so batching should raise total throughput substantially but was not tested), contexts beyond ~25k tokens, images larger than 896 px (images were downsized), power draw in watts, battery operation, and sustained load longer than the ~6 h single runs.</li>
+</ul>
+
+<h2>10. Glossary and method notes</h2>{T_gl}
 <ul>
 <li>Latency, tokens and memory columns are averages over the samples of that cell; Peak GB, RAM and Swap are maxima; Therm. limit is the minimum.</li>
 <li>The 9B was converted to 4-bit (group size 64) because bf16 (19 GB) does not fit in 16 GB, so it is not an apples-to-apples precision comparison with the other three.</li>
