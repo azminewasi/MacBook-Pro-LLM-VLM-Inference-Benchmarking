@@ -4,7 +4,7 @@ How far can a single 16 GB MacBook go at running modern LLMs and VLMs locally? T
 **Qwen3.5 (0.8B, 2B, 4B, 9B)** on an **Apple M5 MacBook** with [MLX](https://github.com/ml-explore/mlx), measuring
 quality, speed, memory and system load for every single inference, and logging everything to Weights & Biases.
 
-> **Status:** 0.8B and 2B are complete. 4B, 9B (4-bit) and the long-thinking (8x token budget) runs are in progress; the tables below will be extended as they finish.
+> **Status:** all runs are complete: 4 models x 400 inferences, the 8x long-thinking runs, and the mitigation experiment. The full analysis with plots is in **[`results/report.html`](results/report.html)** (open it in a browser; regenerate with `python analysis/make_report.py`).
 
 ## Overview
 - **Hardware:** Apple M5, 10 CPU/GPU cores, 16 GB unified memory, macOS 26 (Darwin 25.6), plugged in. MLX 0.32, mlx-vlm 0.7.12.
@@ -32,27 +32,34 @@ quality, speed, memory and system load for every single inference, and logging e
 
 Not collected: power in watts (needs `sudo powermetrics`; battery readings are meaningless on AC).
 
-## Results so far (100 samples per cell; ±~10 points at 95% confidence)
-| Model | Task | Thinking | Accuracy | Truncated | Gen tokens | Decode tok/s | Latency | Peak mem |
-|---|---|---|---|---|---|---|---|---|
-| 0.8B | GSM8K | off | 54% | 21% | 357 | 73.5 | 4.9 s | 1.8 GB |
-| 0.8B | GSM8K | on | 22% | 94% | 2960 | 70.6 | 42 s | 1.8 GB |
-| 0.8B | AI2D | off | 41% | 5% | 4 | 140* | 0.2 s | 2.4 GB |
-| 0.8B | AI2D | on | 48% | 43% | 1308 | 71.0 | 18.6 s | 2.5 GB |
-| 2B | GSM8K | off | 77% | 18% | 349 | 31.5 | 11.2 s | 4.3 GB |
-| 2B | GSM8K | on | 65% | 49% | 2320 | 30.4 | 76 s | 4.3 GB |
-| 2B | AI2D | off | 46% | 0% | 3 | 56* | 0.3 s | 5.1 GB |
-| 2B | AI2D | on | 73% | 34% | 1132 | 31.1 | 37 s | 5.1 GB |
+## Results (100 samples per cell; about ±10 points at 95% confidence)
+| Model | GSM8K off | GSM8K on | AI2D off | AI2D on | Decode tok/s | Peak MLX mem |
+|---|---|---|---|---|---|---|
+| 0.8B (bf16) | 54% | 22% | 41% | 48% | 71-73 | 2.5 GB |
+| 2B (bf16) | 77% | 65% | 46% | 73% | 30-31 | 5.1 GB |
+| 4B (bf16) | 85% | 84% | 45%\* | 85% | 14 | 9.4 GB |
+| 9B (4-bit) | 88% | 70% | 82% | 76% | 26 | 6.5 GB |
 
-\*AI2D thinking-off answers are ~3-4 tokens, so decode tok/s there is dominated by overhead.
+\*4B AI2D thinking-off is cut off by the 32-token cap in 49% of samples (it explains before answering), so it understates the model.
 
-**Findings so far**
-- 2B beats 0.8B significantly everywhere except AI2D without thinking (both near guessing, 4 options = 25% chance; paired sign test p=0.53).
-- Thinking helps vision (2B: 46% -> 73%) but *hurts* GSM8K at the 3072-token cap, mostly because of truncation (94% of 0.8B and 49% of 2B thinking runs never finish) - hence the 8x-cap experiment.
-- Decode is memory-bandwidth bound: speed falls ~2.3x from 0.8B to 2B (~2.6x more weights). Both keep the GPU ~97-99% busy with CPU ~10%.
-- No swap and no thermal throttling for 0.8B/2B. The 4B (8.5 GB in bf16) is close to the 16 GB limit and starts using swap; decode ~14 tok/s.
+**Long thinking (8x token caps, first 20 questions, thinking on)**
+| Model | GSM8K 1x -> 8x | AI2D 1x -> 8x | GSM8K still capped at 8x |
+|---|---|---|---|
+| 0.8B | 15% -> 35% | 40% -> 60% | 80% |
+| 2B | 50% -> 80% | 60% -> 70% | 25% |
+| 4B | 70% -> 95% | 85% -> 85% | 15% |
+| 9B (4-bit) | 65% -> 95% | 75% -> 85% | 0% |
 
-Full per-sample data is in `results/` (`<model>.jsonl`, `<model>_summary.csv`, `compare_*.csv`).
+**Mitigation** (re-run truncated+wrong thinking samples with top-k 20 + presence penalty 1.5): rescues 20-35% of the re-run samples at 1x caps and 50-70% at 8x; there is no control arm and few samples, so treat as indicative.
+
+**Findings**
+- Quality rises with size (GSM8K without thinking 54 -> 77 -> 85 -> 88%). The 9B at 4-bit is better *and* faster (26 tok/s) than the 4B in bf16 (14 tok/s), so on 16 GB quantising a bigger model beats running a smaller one at full precision.
+- Thinking helps vision for the smaller models but looks harmful on GSM8K at the 3,072-token cap because up to 94% of thinking runs never finish. With 8x caps thinking becomes the best mode (4B and 9B reach 95% on GSM8K).
+- Remaining truncations at 8x are mostly repetition loops for 0.8B-4B; the 9B rarely loops. Wrong answers use about 2x the tokens of correct ones.
+- Decode speed is memory-bandwidth bound: decode tok/s x weight size is ~110-145 GB/s for every model.
+- The 4B in bf16 is the practical memory limit (9.4 GB peak; macOS used up to ~2.4 GB of swap without slowing decode). GPU utilisation was 97-99%, CPU 6-12%, and the thermal speed limit stayed at 100% (no throttling).
+
+Per-sample data is in `results/` (`<model>.jsonl`, `<model>_summary.csv`, `*-think8x*`, `*-mitigate*`, `compare_*.csv`); the report ties everything together.
 
 ## Repository layout
 ```
@@ -65,7 +72,8 @@ scripts/
   03_run_mitigate.sh      mitigation experiment, 10 samples per task (run after 01/02); logs to W&B project macbook-llm-mitigation
   04_cleanup.sh        dry-run by default; --yes deletes tmp/, models/, wandb/ and the HF model cache
   common.sh            shared helpers (skip-if-finished, 9B conversion)
-results/               per-sample records (.jsonl), summaries (.csv), comparison tables (kept)
+analysis/make_report.py  builds results/report.html (inline-SVG charts + tables, no extra dependencies)
+results/               per-sample records (.jsonl), summaries (.csv), comparison tables, report.html (kept)
 logs/                  console logs (git-ignored)
 ```
 All scripts are resumable and skip finished runs, so they can be re-run safely; use `caffeinate -ims scripts/01_run_main.sh > logs/main.log 2>&1 &` for long runs.
