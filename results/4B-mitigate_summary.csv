@@ -1,0 +1,3 @@
+tag,task,n_total,orig_acc,orig_trunc,n_mitigated,rescued,rescue_rate,mitigate_still_truncated,acc_after_mitigate,acc_gain,mitigate_mean_gen_tokens,mitigate_mean_latency_s
+4B,ai2d_vision,100,0.85,0.2,10,3,0.3,0.7,0.88,0.03,1805.7,128.31287311659943
+4B,gsm8k_text,100,0.84,0.28,10,3,0.3,0.9,0.87,0.03,2950.2,208.90571947509926
