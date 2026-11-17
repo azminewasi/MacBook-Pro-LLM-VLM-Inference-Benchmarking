@@ -252,113 +252,151 @@ p{margin:8px 0}.sub{color:var(--dim);margin:0 0 18px}.dim{color:var(--dim)}.card
 .legend{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:13px;margin:0 4px 6px}.legend .sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
 i.s0{background:var(--s0)}i.s1{background:var(--s1)}i.s2{background:var(--s2)}i.s3{background:var(--s3)}i.s4{background:var(--s4)}
 .tw{overflow-x:auto;margin:10px 0}table{border-collapse:collapse;width:100%;font-size:13.5px;background:var(--card);border:1px solid var(--line)}th,td{padding:6px 9px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}th{color:var(--dim);font-weight:600;font-size:12px}table:not(.dense) td{white-space:normal}
-table.dense{font-size:12px}table.dense td,table.dense th{padding:5px 7px}ul{padding-left:20px}li{margin:4px 0}code{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:13px}
+table.dense{font-size:12px}table.dense td,table.dense th{padding:5px 7px}ul{padding-left:20px}li{margin:4px 0}.lede{font-size:17px;line-height:1.55;margin:4px 0 12px}.kicker{color:var(--accent);font-weight:600;font-size:13px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 6px}.take{border:1px solid var(--line);border-left:3px solid var(--s2);background:var(--card);padding:10px 14px;border-radius:0 8px 8px 0;margin:16px 0}ul.toc li{margin:7px 0}a{color:var(--accent)}ol li{margin:6px 0}code{background:var(--card);border:1px solid var(--line);border-radius:4px;padding:0 4px;font-size:13px}
 @media (max-width:600px){h1{font-size:24px}}"""
 
-HTML = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Mac LLM/VLM Inference Report</title><style>{CSS}</style></head><body><main>
-<h1>Qwen3.5 on a 16 GB Apple M5 MacBook: inference analysis</h1>
-<p class="sub">0.8B, 2B, 4B (bf16) and 9B (4-bit) · MLX · GSM8K (text) and AI2D (vision) · thinking off / on · generated {datetime.date.today().isoformat()} from <code>results/*.jsonl</code> ({tag_n:,} main + long-thinking inferences, plus {sum(mit1_n)+sum(mit8_n)} mitigation re-runs)</p>
+HTML = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>How far can a 16 GB MacBook go? Benchmarking Qwen3.5</title><style>{CSS}</style></head><body><main>
+<p class="kicker">Mac LLM/VLM Inference Testing</p>
+<h1>How far can a 16 GB MacBook go? Benchmarking Qwen3.5 from 0.8B to 9B</h1>
+<p class="sub">{datetime.date.today().strftime('%B %d, %Y')} · Apple M5 MacBook Pro, 16 GB · MLX · {tag_n:,} measured inferences · about 15 min read</p>
 
-<div class="cards">
-<div class="card"><b>{g('9B-4bit','gsm8k_text',False)}</b><span>best GSM8K, 9B 4-bit, thinking off ({26.5:.0f} tok/s)</span></div>
-<div class="card"><b>{g('4B','ai2d_vision',True)}</b><span>best AI2D, 4B bf16, thinking on (14 tok/s)</span></div>
-<div class="card"><b>≈{np.mean(list(bw_est.values())):.0f} GB/s</b><span>effective memory bandwidth reached while decoding</span></div>
-<div class="card"><b>0 throttling</b><span>CPU speed limit stayed at 100% in every run; swap peaked at {max(swap_max.values()):.1f} GB</span></div>
-</div>
+<h2 id="aim">The question</h2>
+<p class="lede">Local models are good enough now that "can I run this on my laptop?" is a real question. But the answers people give are usually anecdotes: it "runs", it "feels fast". We wanted numbers, for every model size we could fit, and for the part that is easy to overlook: what the model does when you let it <i>think</i>.</p>
+<p>So we took one 16 GB Apple M5 MacBook Pro and ran the Qwen3.5 family (0.8B, 2B, 4B, and a 4-bit 9B) through a text benchmark (GSM8K grade-school math) and a vision benchmark (AI2D science diagrams), each with thinking switched off and on. Every single request was instrumented: accuracy, time to first token, decode speed, tokens generated, GPU memory, system RAM, swap, CPU and GPU load and thermal state. Then we gave thinking mode 8x more tokens, and tried to rescue the runs where the model got stuck repeating itself.</p>
+<p>This post walks through what we found, in the order we found it, and ends with what a MacBook like this can and cannot do.</p>
 
-<h2>Key findings</h2>
-<ul>
-<li><b>Quality scales with size, with one twist.</b> GSM8K without thinking rises {g('0.8B','gsm8k_text',False)} → {g('2B','gsm8k_text',False)} → {g('4B','gsm8k_text',False)} → {g('9B-4bit','gsm8k_text',False)}. The 9B at 4-bit is the best text model and is <i>faster</i> (26 tok/s) and smaller in memory (5.5 GB) than the 4B in bf16 (14 tok/s, 8.5 GB): on a 16 GB laptop, quantising up is better than running a smaller model at full precision.</li>
-<li><b>Thinking helps vision for the smaller models but looks harmful on text under a fixed token cap.</b> AI2D thinking off→on (the 9B already answers directly at {g('9B-4bit','ai2d_vision',False)}): 0.8B {g('0.8B','ai2d_vision',False)}→{g('0.8B','ai2d_vision',True)}, 2B {g('2B','ai2d_vision',False)}→{g('2B','ai2d_vision',True)}, 4B {g('4B','ai2d_vision',False)}→{g('4B','ai2d_vision',True)}. On GSM8K thinking <i>lowers</i> accuracy at the 3,072-token cap (0.8B {g('0.8B','gsm8k_text',False)}→{g('0.8B','gsm8k_text',True)}, 9B {g('9B-4bit','gsm8k_text',False)}→{g('9B-4bit','gsm8k_text',True)}) because up to 94% of the thinking runs never finish.</li>
-<li><b>The cap, not the capability, is the problem.</b> With an 8x larger budget (first 20 questions) thinking becomes the best mode and the 9B catches up with the 4B (both 95% on GSM8K): GSM8K 4B {100*matched['4B','gsm8k_text'][0]:.0f}%→{100*matched['4B','gsm8k_text'][1]:.0f}%, 9B {100*matched['9B-4bit','gsm8k_text'][0]:.0f}%→{100*matched['9B-4bit','gsm8k_text'][1]:.0f}%, with no 9B sample truncated. The price is time: ~{lat['4B','gsm8k_text',True]:.0f} s per answer at 1x grows to ~{cell('4B','gsm8k_text',True,D8['4B']).total_s.mean():.0f} s at 8x for the 4B.</li>
-<li><b>Remaining truncations are mostly repetition loops.</b> At 8x, {L8['0.8B'][0]+L8['2B'][0]+L8['4B'][0]} of {sum(L8[m][0]+L8[m][1] for m in M[:3])} truncated 0.8B–4B outputs end in a repeating loop (compression-ratio test), while at 1x most truncations are legitimate long reasoning. The 9B almost never loops.</li>
-<li><b>Wrong answers are long answers.</b> In thinking mode wrong answers use about {np.mean([cw[m][1]/cw[m][0] for m in M]):.1f}x the tokens of correct ones, which is why more budget alone has diminishing returns.</li>
-<li><b>Speed is a memory-bandwidth story.</b> Decode tok/s × weight bytes lands at {min(bw_est.values()):.0f}–{max(bw_est.values()):.0f} GB/s for every model, i.e. most of the chip's peak bandwidth; speed halves when weights double.</li>
-<li><b>The 16 GB limit is felt from the 4B up.</b> The 4B in bf16 peaks at {max(peak['4B',t,th] for t,th in COND):.1f} GB of MLX memory and macOS used up to ~{swap_max['4B']:.1f} GB of swap (the 9B runs showed ~{swap_max['9B-4bit']:.1f} GB too, with only {max(peak['9B-4bit',t,th] for t,th in COND):.1f} GB of MLX memory, so that is system-wide pressure). Decode speed stayed flat (~14 tok/s for the 4B), so the swap held idle pages, not the model. 0.8B and 2B never touched swap.</li>
+<h3>The short answers</h3>
+<ul class="toc">
+<li><b>Bigger is better, and 4-bit is a bargain.</b> GSM8K accuracy without thinking rises {g('0.8B','gsm8k_text',False)} → {g('2B','gsm8k_text',False)} → {g('4B','gsm8k_text',False)} → {g('9B-4bit','gsm8k_text',False)}. The 9B at 4-bit beats the 4B at full precision and is almost twice as fast.</li>
+<li><b>Thinking is limited by its token budget, not by the model.</b> With the standard caps it often <i>hurts</i> on math because answers never finish; with 8x the budget the 4B and 9B reach 95% on the same questions.</li>
+<li><b>The MacBook is bandwidth-bound, not compute-bound.</b> Speed tracks weight size almost perfectly (≈{BW:.0f} GB/s effective); a long context costs under 1 GB.</li>
+<li><b>The practical ceiling is about 8 GB of weights.</b> That is a 4B model in bf16, or a 9B-class model at 4-bit. Time, not memory, is what limits thinking-mode evaluation.</li>
 </ul>
+<div class="cards">
+<div class="card"><b>{g('9B-4bit','gsm8k_text',False)}</b><span>best GSM8K: 9B 4-bit, thinking off ({26.5:.0f} tok/s)</span></div>
+<div class="card"><b>{g('4B','ai2d_vision',True)}</b><span>best AI2D: 4B bf16, thinking on (14 tok/s)</span></div>
+<div class="card"><b>≈{BW:.0f} GB/s</b><span>effective memory bandwidth reached while decoding</span></div>
+<div class="card"><b>0 throttling</b><span>CPU speed limit stayed at 100% in all {total_h:.0f} hours of generation</span></div>
+</div>
+<p class="dim">Jump to: <a href="#setup">setup</a> · <a href="#accuracy">accuracy</a> · <a href="#thinking">thinking and tokens</a> · <a href="#loops">loops</a> · <a href="#speed">speed</a> · <a href="#cost">cost</a> · <a href="#memory">memory</a> · <a href="#capability">what this Mac can do</a> · <a href="#conclusions">conclusions</a> · <a href="#appendix">appendix</a></p>
 
-<h2>1. Setup</h2>
-<p>Apple M5 (10-core CPU/GPU), 16 GB unified memory, macOS (Darwin 25.6), on AC power, other apps closed. MLX 0.32 / mlx-vlm 0.7.12, all models served from the same multimodal checkpoint. GSM8K: first 100 test questions, exact match on the final number. AI2D: first 100 test items, options numbered 1–4 (25% chance level). Thinking off is greedy; thinking on samples at T=0.6, top-p 0.95. Caps: off 512 / 32 tokens, on 3,072 / 2,048 (GSM8K / AI2D); the long-thinking runs use 8x those caps on the first 20 questions. A truncated answer counts as wrong.</p>
-<div class="note"><b>Read AI2D thinking-off with care.</b> It is a 32-token budget: the 4B starts explaining before answering and gets cut off in {100*trunc['4B','ai2d_vision',False]:.0f}% of cases, so its {g('4B','ai2d_vision',False)} reflects the format limit, not weak vision. The 9B answers directly ({g('9B-4bit','ai2d_vision',False)}); the 0.8B and 2B are near chance. All cells have n=100, so 95% intervals are about ±10 points.</div>
+<h2 id="setup">1. How we measured</h2>
+<p>The machine is an Apple M5 (10-core CPU/GPU) with 16 GB of unified memory, on AC power, with other apps closed, running MLX 0.32 and mlx-vlm 0.7.12. All four models are the same multimodal Qwen3.5 checkpoints, so one set of weights does both tasks. The 0.8B, 2B and 4B run in bf16. The 9B is 19 GB in bf16 and simply does not fit, so we converted it to 4-bit (5.5 GB).</p>
+<p>GSM8K uses the first 100 test questions, scored by exact match on the final number. AI2D uses the first 100 test items with options numbered 1-4 (25% is chance). Thinking off is greedy decoding; thinking on samples at temperature 0.6, top-p 0.95. Token caps are 512 / 32 (off) and 3,072 / 2,048 (on) for GSM8K / AI2D, and a truncated answer counts as wrong. With n=100 per cell, results are accurate to about ±10 points, so we lean on large gaps and paired tests.</p>
+<div class="note"><b>A caveat on AI2D with thinking off.</b> That mode has a 32-token budget. The 4B likes to explain before answering and gets cut off {100*trunc['4B','ai2d_vision',False]:.0f}% of the time, so its {g('4B','ai2d_vision',False)} reflects the format limit, not weak vision. The 9B answers directly ({g('9B-4bit','ai2d_vision',False)}); the 0.8B and 2B sit near chance.</div>
 
-<h2>2. Accuracy</h2>
+<h2 id="accuracy">2. Does a bigger model help?</h2>
+<p class="lede">Yes, almost everywhere, with one surprise: at full thinking caps the 9B does worse than the 4B.</p>
 <div class="fig"><div class="cap">Accuracy by model and mode; error bars are 95% Wilson intervals (n=100). The dashed line is chance level on AI2D (25%).</div>{c_acc}</div>
-<p>Paired sign tests (table below) show significant gains for 0.8B→2B on GSM8K (both modes) and AI2D-thinking, and for 2B→4B with thinking on (GSM8K and AI2D). 4B→9B-4bit is mixed: the 9B wins AI2D with thinking off (a format effect, see the note above), but with thinking on the 4B is significantly <i>better</i> on both tasks, driven by the 9B hitting the token cap more often ({100*trunc['9B-4bit','gsm8k_text',True]:.0f}% vs {100*trunc['4B','gsm8k_text',True]:.0f}% on GSM8K). GSM8K without thinking, 4B vs 9B, is within noise.</p>
-<h3>Paired sign tests between neighbouring model sizes</h3>{T_pair}
+<p>Without thinking, GSM8K accuracy climbs steadily with size: {g('0.8B','gsm8k_text',False)}, {g('2B','gsm8k_text',False)}, {g('4B','gsm8k_text',False)}, {g('9B-4bit','gsm8k_text',False)}. Paired sign tests (appendix B) confirm the big steps: 0.8B to 2B is significant on GSM8K in both modes and on AI2D with thinking; 2B to 4B is significant with thinking on. From 4B to 9B-4bit, GSM8K without thinking is within noise.</p>
+<p>The surprise is thinking mode. With thinking on, the 4B is significantly <i>better</i> than the larger 9B-4bit on both tasks (GSM8K {g('4B','gsm8k_text',True)} vs {g('9B-4bit','gsm8k_text',True)}, AI2D {g('4B','ai2d_vision',True)} vs {g('9B-4bit','ai2d_vision',True)}). Not because it reasons better, as the next chapter shows, but because the 9B runs out of tokens more often ({100*trunc['9B-4bit','gsm8k_text',True]:.0f}% vs {100*trunc['4B','gsm8k_text',True]:.0f}% on GSM8K).</p>
+<div class="take"><b>Takeaway.</b> Model size buys accuracy, but only if the answer actually finishes. Whether the answer finishes depends on the token budget.</div>
 
-<h2>3. Token budget, truncation and looping</h2>
-<div class="fig"><div class="cap">Share of requests that hit the token cap.</div>{c_trunc}</div>
-<div class="fig"><div class="cap">Mean generated tokens (log scale). Thinking costs roughly 6x (GSM8K) to several hundred x (AI2D) more tokens than answering directly.</div>{c_gen}</div>
-<div class="fig"><div class="cap">Wrong answers use roughly twice the tokens of correct ones (thinking on, 1x caps).</div>{c_cw}</div>
+<h2 id="thinking">3. Thinking mode: powerful, until it runs out of tokens</h2>
+<p class="lede">Thinking helps vision, looks harmful on math, and the difference is almost entirely about truncation.</p>
+<p>For the smaller models on AI2D, thinking is a clear win: 0.8B {g('0.8B','ai2d_vision',False)} to {g('0.8B','ai2d_vision',True)}, 2B {g('2B','ai2d_vision',False)} to {g('2B','ai2d_vision',True)}, 4B {g('4B','ai2d_vision',False)} to {g('4B','ai2d_vision',True)}. On GSM8K it goes the other way: the 0.8B falls from {g('0.8B','gsm8k_text',False)} to {g('0.8B','gsm8k_text',True)} and the 9B from {g('9B-4bit','gsm8k_text',False)} to {g('9B-4bit','gsm8k_text',True)}. Look at how often the models hit the cap:</p>
+<div class="fig"><div class="cap">Share of requests that hit the token cap. Up to 94% of the 0.8B's thinking runs on GSM8K never finish.</div>{c_trunc}</div>
+<p>Thinking is expensive in tokens, from roughly 6x more on GSM8K to several hundred times more on AI2D, where the non-thinking answer is just a few tokens:</p>
+<div class="fig"><div class="cap">Mean generated tokens (log scale).</div>{c_gen}</div>
+<p>And the tokens are not evenly spent. Wrong answers are long: in thinking mode they use about {np.mean([cw[m][1]/cw[m][0] for m in M]):.1f}x the tokens of correct ones. A model that is going to get it right usually does so in about {np.mean([cw[m][0] for m in M]):.0f} tokens; one that is struggling keeps going until it hits the cap.</p>
+<div class="fig"><div class="cap">Mean tokens for correct vs wrong answers (thinking on, 1x caps).</div>{c_cw}</div>
 
-<h3>Does a bigger budget fix it? (same 20 questions, 1x vs 8x caps)</h3>
-<div class="fig"><div class="cap">GSM8K, thinking on, first 20 questions.</div>{c_8x_g}</div>
-<div class="fig"><div class="cap">AI2D, thinking on, first 20 questions.</div>{c_8x_a}</div>
-<div class="fig"><div class="cap">Share hitting the cap, 1x vs 8x.</div>{c_8x_t}</div>
-<p>n=20, so intervals are about ±20 points; the direction is consistent across all four models though. Full 8x results:</p>{T_8x}
+<h3>What happens with 8x the budget?</h3>
+<p>To separate capability from budget we re-ran the first 20 questions of each task with caps 8x higher (24,576 tokens for GSM8K). If the cap were the whole story, accuracy would jump:</p>
+<div class="fig"><div class="cap">GSM8K, thinking on, same 20 questions at 1x and 8x caps.</div>{c_8x_g}</div>
+<div class="fig"><div class="cap">AI2D, thinking on, same 20 questions at 1x and 8x caps.</div>{c_8x_a}</div>
+<p>It does, for every model: the 4B goes from {100*matched['4B','gsm8k_text'][0]:.0f}% to {100*matched['4B','gsm8k_text'][1]:.0f}% on GSM8K and the 9B from {100*matched['9B-4bit','gsm8k_text'][0]:.0f}% to {100*matched['9B-4bit','gsm8k_text'][1]:.0f}%, now with none of its samples truncated. With a big enough budget the 9B catches up with the 4B, which resolves the surprise in chapter 2. (n=20, so each number is good to about ±20 points; the direction is the same for all four models.) The price is time: the 4B's average answer on GSM8K takes ~{lat['4B','gsm8k_text',True]:.0f} s at 1x and ~{cell('4B','gsm8k_text',True,D8['4B']).total_s.mean():.0f} s at 8x.</p>
+<div class="fig"><div class="cap">Share of requests hitting the cap, 1x vs 8x.</div>{c_8x_t}</div>
+<div class="take"><b>Takeaway.</b> "Thinking hurts math" was a budget artefact. Give it room and thinking becomes the best mode; but budget is wall-clock time on a laptop, so it is a real trade-off.</div>
 
-<h3>What are the truncated outputs doing?</h3>
-<p>A truncated thinking trace is classed as a <b>repetition loop</b> if its last 3,000 characters compress to under 15% of their size (zlib), i.e. the model is repeating itself; otherwise it is <b>long but not looping</b>.</p>
+<h2 id="loops">4. The ones that never finish: repetition loops, and a rescue attempt</h2>
+<p class="lede">More tokens fix most truncations, but not the loops. Those just loop for longer.</p>
+<p>Not all truncated answers are alike. We classified each truncated thinking trace by whether its last 3,000 characters compress to under 15% of their size (a sure sign the model is repeating itself). At the standard caps, most truncations are genuinely long reasoning that would finish given more room:</p>
 <div class="fig"><div class="cap">Truncated thinking-on outputs at 1x caps (counts, GSM8K + AI2D).</div>{c_loop1}</div>
-<div class="fig"><div class="cap">Truncated thinking-on outputs at 8x caps. Loops dominate: giving a looping model more tokens just makes it loop for longer.</div>{c_loop8}</div>
+<p>At 8x the picture flips: of the {sum(L8[m][0]+L8[m][1] for m in M[:3])} truncated outputs from the 0.8B, 2B and 4B, {L8['0.8B'][0]+L8['2B'][0]+L8['4B'][0]} end in a loop. The extra budget rescued most of the answers that were merely slow, and what remains is mostly the model stuck in a cycle. The 9B almost never loops.</p>
+<div class="fig"><div class="cap">Truncated thinking-on outputs at 8x caps: the remainder is loops.</div>{c_loop8}</div>
+<h3>Can sampling settings pull a model out of a loop?</h3>
+<p>Qwen recommends top-k 20 and a presence penalty for thinking mode. Our first runs used neither, so we re-ran the truncated-and-wrong samples (up to 10 per task) with top-k 20 and presence penalty 1.5:</p>
+<div class="fig"><div class="cap">Share of re-run samples that became correct.</div>{c_mit}</div>
+<p>It rescued roughly 20-35% of the 1x cases and 50-70% of the 8x cases. This is encouraging but weak evidence: there is no control arm (a re-run with the original settings), and the sets are tiny (2-20 samples per cell), so part of the rescue could be plain re-sampling luck. Details are in appendix D.</p>
+<div class="take"><b>Takeaway.</b> Budget fixes slowness; sampling settings may help with loops; bigger models loop less. Look at <i>why</i> answers are truncated before deciding the fix.</div>
 
-<h2>4. Speed</h2>
+<h2 id="speed">5. How fast is it, really?</h2>
+<p class="lede">Decode speed is set by one number: how many gigabytes of weights the chip must read per token.</p>
 <div class="fig"><div class="cap">Decode throughput (thinking on). It depends on the model, not the task.</div>{c_dec}</div>
-<div class="fig"><div class="cap">Prefill throughput. Vision prompts carry ~200 extra image tokens.</div>{c_pre}</div>
-<div class="fig"><div class="cap">Implied memory bandwidth = decode tok/s × weight size in GB. Decoding streams all weights once per token, so every model sits at a similar fraction of the hardware peak.</div>{c_bw}</div>
-<div class="fig"><div class="cap">Mean end-to-end latency per request (log scale).</div>{c_lat}</div>
+<p>Generating a token means streaming essentially all the weights through the GPU once, so speed halves when weights double: 71 tok/s for the 0.8B, 30 for the 2B, 14 for the 4B. Multiply decode speed by weight size and you get the effective memory bandwidth, which lands between {min(bw_est.values()):.0f} and {max(bw_est.values()):.0f} GB/s for every model, most of what the chip can deliver. That is also why the 4-bit 9B (5.5 GB) generates at 26 tok/s, nearly twice the 4B in bf16 (8.5 GB).</p>
+<div class="fig"><div class="cap">Implied memory bandwidth = decode tok/s × weight size in GB, against Apple's quoted peak for the M5.</div>{c_bw}</div>
+<p>Prefill (reading the prompt) is compute-bound instead and runs at 400-2,600 tokens/s depending on the model; vision prompts carry about 200 extra image tokens, so they cost more to read.</p>
+<div class="fig"><div class="cap">Prefill throughput.</div>{c_pre}</div>
+<div class="fig"><div class="cap">Mean end-to-end latency per request (log scale): sub-second for direct answers, minutes for thinking on the larger models.</div>{c_lat}</div>
 
-<h2>5. Efficiency: what does a correct answer cost?</h2>
-<div class="fig"><div class="cap">Wall-clock seconds per correct answer (total time / number correct), log scale. Direct answers are about 6–20x cheaper than thinking on GSM8K.</div>{c_spc}</div>
+<h2 id="cost">6. What does a correct answer cost?</h2>
+<p class="lede">Direct answers are 6-20x cheaper than thinking on math, and the small models are not the cheap ones you would expect.</p>
+<div class="fig"><div class="cap">Wall-clock seconds per correct answer (total time / number correct), log scale.</div>{c_spc}</div>
+<p>Dividing total time by the number of correct answers puts accuracy and speed on one axis. On GSM8K without thinking the 0.8B is cheapest per correct answer (about 9 s) but only because it is fast; the larger models waste fewer tokens ({tpc['9B-4bit','gsm8k_text',False]:.0f} tokens per correct answer for the 9B against {tpc['0.8B','gsm8k_text',False]:.0f} for the 0.8B). With thinking on, every model pays about 120-190 s per correct GSM8K answer.</p>
 <div class="fig"><div class="cap">Generated tokens per correct answer, log scale.</div>{c_tpc}</div>
-<div class="fig"><div class="cap">Total generation time in the benchmark ({total_h:.1f} h across {tag_n:,} inferences).</div>{c_hours}</div>
+<div class="fig"><div class="cap">Total generation time ({total_h:.1f} h across {tag_n:,} inferences): the 4B was the slowest model to benchmark at {hours['4B'][0]+hours['4B'][1]:.1f} h.</div>{c_hours}</div>
 
-<h2>6. Memory and system load</h2>
+<h2 id="memory">7. How much of the 16 GB do we use?</h2>
+<p class="lede">The 0.8B and 2B are comfortable. The 4B in bf16 is right at the edge, and the 4-bit 9B has more headroom.</p>
 <div class="fig"><div class="cap">Peak MLX memory, peak system RAM and peak swap per model, against the 16 GB limit.</div>{c_mem}</div>
-<p>GPU utilisation was 97–99% for every thinking-on run and CPU utilisation 6–12% (the CPU only feeds the GPU), so generation is fully GPU-bound. The thermal speed limit never dropped below 100%, so the M5 did not throttle even on multi-hour runs. The 9B at 4-bit uses only 5.5 GB of weights, which leaves room for long contexts.</p>
+<p>macOS and background services hold about {BASE_GB:.1f} GB even with apps closed, leaving ≈{USABLE:.1f} GB for a model. The 4B in bf16 peaks at {max(peak['4B',t,th] for t,th in COND):.1f} GB of MLX memory and macOS used up to ~{swap_max['4B']:.1f} GB of swap, yet decode speed stayed flat at 14 tok/s, so the swap held idle pages, not the model. (The 9B runs showed ~{swap_max['9B-4bit']:.1f} GB of swap with only {max(peak['9B-4bit',t,th] for t,th in COND):.1f} GB of MLX memory: system-wide pressure.) The 0.8B and 2B never touched swap.</p>
+<p>GPU utilisation was 97-99% for every thinking-on run and CPU utilisation only 6-12% (the CPU just feeds the GPU), so generation is fully GPU-bound. The thermal speed limit never dropped below 100%: the M5 did not throttle in {total_h:.0f} hours of generation, including single runs of about 6 hours.</p>
 
-<h2>7. Mitigation experiment (top-k 20 + presence penalty 1.5)</h2>
-<p>Truncated-and-wrong thinking samples were re-run with Qwen's recommended top-k 20 and presence penalty 1.5 (up to 10 per task; the 8x sets only contain the few samples that still failed). Rescued = now correct.</p>
-<div class="fig"><div class="cap">Share of re-run samples that became correct.</div>{c_mit}</div>{T_mit}
-<div class="note"><b>Caveat.</b> There is no control arm (re-running with the original sampling settings), and the 1x re-runs often still hit the cap, so part of the rescue rate may be plain re-sampling luck. With 2–20 samples per cell treat these as indicative only.</div>
-
-<h2>8. Full results table</h2>{T_full}
-
-<h2>9. MacBook capability and limits</h2>
-<p>What this 16 GB M5 MacBook Pro can and cannot do for local LLM/VLM <b>inference and evaluation</b>, measured with the runs above. (Training capability is covered in the sibling post-training report.)</p>
+<h2 id="capability">8. So what can this MacBook do?</h2>
+<p class="lede">What fits, how long things take, and where the walls are.</p>
 <div class="cards">
 <div class="card"><b>≈{USABLE:.1f} GB</b><span>usable for a model: macOS and background services keep ≈{BASE_GB:.1f} GB in use even with apps closed</span></div>
 <div class="card"><b>≈{BW:.0f} GB/s</b><span>effective memory bandwidth while decoding; tokens/s ≈ {BW:.0f} ÷ weight GB</span></div>
 <div class="card"><b>+{max(ctx8[m][1] for m in M):.1f} GB</b><span>extra memory for a ~25k-token generation: context is almost free</span></div>
 <div class="card"><b>{total_h:.0f} h</b><span>of generation without throttling; peak RAM {max(max(D1[m].ram_used_gb_max) for m in M):.1f} GB</span></div>
 </div>
-<h3>Memory budget</h3>
-<div class="fig"><div class="cap">Where the 16 GB goes (peak working memory taken over all runs). The 4B in bf16 leaves almost nothing free, which is why swap appeared; the 4-bit 9B has more headroom than the 4B.</div>{c_budget}</div>
-<h3>Context length costs almost no memory</h3>
-<div class="fig"><div class="cap">Peak MLX memory above the weights for the longest request in each set. Qwen3.5 mostly uses gated-delta (linear) attention layers whose state does not grow with length, so a 25k-token thinking trace adds under 1 GB. Memory, not context length, is what decides the model size you can run.</div>{c_ctx}</div>
+<h3>The memory budget</h3>
+<div class="fig"><div class="cap">Where the 16 GB goes (peak working memory over all runs). The 4B in bf16 leaves almost nothing free; the 4-bit 9B has more headroom.</div>{c_budget}</div>
+<h3>Context is nearly free</h3>
+<p>One of the pleasant surprises: a 25,000-token thinking trace adds under 1 GB. Qwen3.5 mostly uses gated-delta (linear) attention layers, whose state does not grow with length, so memory is decided by weights, not context.</p>
+<div class="fig"><div class="cap">Peak MLX memory above the weights for the longest request in each set.</div>{c_ctx}</div>
 <h3>What fits</h3>
 <p>Rows marked "(est.)" are extrapolations: weights = parameters × bytes per parameter (bf16 2, 8-bit ≈1.06, 4-bit ≈0.6), plus ~1 GB working memory against the usable ≈{USABLE:.1f} GB; decode speed = measured bandwidth ÷ weight size (this rule predicts the four measured models within about 15%).</p>{T_fit}
 <h3>What an experiment costs in time</h3>
-<p>Time, not memory, is the practical limit for thinking-mode evaluation. Time for a <b>full</b> benchmark split at the measured mean latencies (batch size 1; thinking-on at the 1x caps used here):</p>{T_cost}
-<p>Throughput is a hard physical ceiling: decoding streams all weights for every token, so at thinking-on speeds the machine generates about {tok_day['0.8B']:.1f} M tokens/day with the 0.8B, {tok_day['2B']:.1f} M with the 2B, {tok_day['4B']:.1f} M with the 4B and {tok_day['9B-4bit']:.1f} M with the 9B (4-bit).</p>
-<h3>Datasets and what drives their cost</h3>{T_prof}
-<p>Cost scales with <i>generated</i> tokens, not prompt size. Short-answer multiple-choice with thinking off (AI2D off: a few tokens) is cheap for every model; chain-of-thought math (GSM8K on: ~2,000 tokens) is 100-1000x more expensive per question. When choosing an evaluation set for this machine, estimate answer length first.</p>
-<h3>Verdict</h3>
-<ul>
-<li><b>Comfortable:</b> bf16 models up to 2B (4-7 GB free) and a 4-bit 9B (3 GB free); thinking traces up to 25k tokens; multi-hour unattended runs on AC power with no throttling.</li>
-<li><b>Tight:</b> 4B in bf16 (about {LOAD_GB['4B']+work['4B']:.1f} GB with a long generation; macOS started swapping but decode speed did not drop), and, by extrapolation, 14B-class at 4-bit or 8B-class at 8-bit (~8.5 GB of weights): anything above ~8 GB of weights.</li>
-<li><b>Not possible:</b> 9B in bf16 (about 19 GB) and 32B-class models even at 4-bit.</li>
-<li><b>Slow, not impossible:</b> thinking-mode evaluation of the larger models: a full GSM8K test split with the 4B thinking on takes about {hrs('4B','gsm8k_text',True):.0f} h at 1x caps and much longer at 8x. Sample 100 questions, as done here, or run non-thinking.</li>
-<li><b>Not measured here:</b> batched or concurrent generation (decode is bandwidth-bound, so batching should raise total throughput substantially but was not tested), contexts beyond ~25k tokens, images larger than 896 px (images were downsized), power draw in watts, battery operation, and sustained load longer than the ~6 h single runs.</li>
-</ul>
+<p>Time, not memory, is the practical limit for thinking-mode evaluation. The full GSM8K test split (1,319 questions) with the 4B thinking on would take about {hrs('4B','gsm8k_text',True):.0f} hours at 1x caps and far longer at 8x:</p>{T_cost}
+<p>The ceiling is physical: at thinking-on speeds the machine generates about {tok_day['0.8B']:.1f} M tokens a day with the 0.8B, {tok_day['2B']:.1f} M with the 2B, {tok_day['4B']:.1f} M with the 4B and {tok_day['9B-4bit']:.1f} M with the 9B (4-bit).</p>
+<h3>Datasets: cost follows answer length</h3>{T_prof}
+<p>Cost scales with <i>generated</i> tokens, not prompt size. Short-answer multiple choice with thinking off (a few tokens) is cheap for every model; chain-of-thought math is 100-1,000x more expensive per question. When choosing an evaluation set for this machine, estimate the answer length first.</p>
 
-<h2>10. Glossary and method notes</h2>{T_gl}
+<h2 id="conclusions">9. Conclusions</h2>
+<ol>
+<li><b>Run the largest model whose weights fit in about 8 GB.</b> On this Mac that is a 4B in bf16 or a 9B-class model at 4-bit; at the same memory, 4-bit buys a bigger and faster model that is at least as accurate without thinking.</li>
+<li><b>Treat the token budget as a first-class setting.</b> It decides whether thinking helps or hurts. Check how many answers hit the cap before comparing models or modes.</li>
+<li><b>Speed is predictable.</b> Tokens per second ≈ {BW:.0f} ÷ weight size in GB. Use it to plan before running.</li>
+<li><b>Memory is not the long-context problem; time is.</b> A 25k-token trace costs under 1 GB but takes ~30 minutes on the 4B.</li>
+<li><b>The machine is a reliable instrument.</b> {total_h:.0f} hours of generation, no throttling, no crashes, including multi-hour single runs.</li>
+</ol>
+<h3>Practical recommendations</h3>
+<ul>
+<li><b>Interactive use, fast answers:</b> 9B at 4-bit, thinking off (26 tok/s, {g('9B-4bit','gsm8k_text',False)} GSM8K).</li>
+<li><b>Hard reasoning or diagrams, time to spare:</b> 4B in bf16 with thinking on and a generous cap ({g('4B','gsm8k_text',True)} at 1x, 95% at 8x on the sampled questions).</li>
+<li><b>Prototyping and many quick evaluations:</b> 0.8B or 2B; they leave several GB free and run at 30-70 tok/s.</li>
+<li><b>Avoid:</b> thinking mode with small caps on the 0.8B (94% truncation) and anything above ~8 GB of weights.</li>
+</ul>
+<h3>What we did not measure</h3>
+<p>Batched or concurrent generation (decode is bandwidth-bound, so batching should raise total throughput substantially, but we ran batch size 1), contexts beyond ~25k tokens, images larger than 896 px (they were downsized), power draw in watts and battery operation (it needs <code>sudo powermetrics</code>), and sustained load beyond single ~6-hour runs. All cells are n=100 or n=20 on one machine, so small differences are not meaningful.</p>
+<h3>What is next</h3>
+<p>Inference is half the story. The sibling project, <i>Mac LLM/VLM Post-training Testing</i>, asks the same capability question for training: SFT, GRPO, RLOO and GSPO, with LoRA and full fine-tuning, on the same machine. Early finding: the memory wall comes much sooner when you train. Read that post next.</p>
+
+<h2 id="appendix">Appendix</h2>
+<h3>A. Full results table</h3>{T_full}
+<h3>B. Paired sign tests between neighbouring model sizes</h3>{T_pair}
+<h3>C. Long-thinking runs (8x token caps)</h3>{T_8x}
+<h3>D. Mitigation runs (top-k 20 + presence penalty 1.5)</h3>{T_mit}
+<div class="note"><b>Caveat.</b> No control arm, tiny sets: indicative only.</div>
+<h3>E. Glossary</h3>{T_gl}
+<h3>F. Method notes and reproduction</h3>
 <ul>
 <li>Latency, tokens and memory columns are averages over the samples of that cell; Peak GB, RAM and Swap are maxima; Therm. limit is the minimum.</li>
 <li>The 9B was converted to 4-bit (group size 64) because bf16 (19 GB) does not fit in 16 GB, so it is not an apples-to-apples precision comparison with the other three.</li>
-<li>Sampling at T=0.6 makes thinking-on numbers vary run to run; n=100 (or 20) is small, so rely on large gaps and paired tests.</li>
-<li>Power draw (watts) was not measured: it needs <code>sudo powermetrics</code>, and battery readings are meaningless on AC.</li>
-<li>Reproduce: <code>python analysis/make_report.py</code> regenerates this page from <code>results/</code>. Every number here comes from the per-sample records.</li>
+<li>Sampling at T=0.6 makes thinking-on numbers vary run to run.</li>
+<li>Every number here is computed from the per-sample records in <code>results/</code>; <code>python analysis/make_report.py</code> regenerates this page. Console and W&amp;B logs hold the full per-sample metrics.</li>
 </ul>
 </main></body></html>"""
 os.makedirs(R, exist_ok=True)
