@@ -22,7 +22,7 @@ quality, speed, memory and system load for every single inference, and logging e
   Token caps: thinking-off 512 (GSM8K) / 32 (AI2D); thinking-on 3072 (GSM8K) / 2048 (AI2D).
   A follow-up run repeats thinking-on with **8x the caps on the first 20 samples** per task to separate capability from token budget.
   Samples that hit the cap without answering count as wrong, and the truncation rate is reported.
-- **Original vs LoRA:** the first plan included LoRA variants; this was dropped in favour of the thinking on/off comparison. Post-training lives in the sibling project *Mac LLM/VLM Post-training Testing*.
+- Post-training (SFT, GRPO, RLOO, GSPO) lives in the companion project, [Mac LLM/VLM post-training benchmarking](https://github.com/azminewasi/Mac-LVLM-PostTrain-Benchmarking).
 
 ## Metrics (logged per sample, aggregated per model/task/mode)
 | Group | Metrics |
