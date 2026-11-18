@@ -1,5 +1,7 @@
 # MacBook Pro - LLM/VLM Inference Benchmarking
 
+**Links:** [GitHub repo](https://github.com/azminewasi/MacBook-Pro-LLM-VLM-Inference-Benchmarking) · blog post: [How far can a 16 GB MacBook go? (inference)](https://azminewasi.github.io/blog/mac-llm-inference-benchmark.html) · companion project: [Mac LLM/VLM post-training benchmarking](https://github.com/azminewasi/Mac-LVLM-PostTrain-Benchmarking) (blog posts: [GSM8K](https://azminewasi.github.io/blog/mac-post-training-gsm8k.html), [math-story](https://azminewasi.github.io/blog/mac-post-training-math-story.html)). · reports: [`results/report.html`](https://github.com/azminewasi/MacBook-Pro-LLM-VLM-Inference-Benchmarking/blob/main/results/report.html)
+
 How far can a single 16 GB MacBook go at running modern LLMs and VLMs locally? This project benchmarks
 **Qwen3.5 (0.8B, 2B, 4B, 9B)** on an **Apple M5 MacBook** with [MLX](https://github.com/ml-explore/mlx), measuring
 quality, speed, memory and system load for every single inference, and logging everything to Weights & Biases.

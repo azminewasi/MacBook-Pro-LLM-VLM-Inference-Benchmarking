@@ -259,6 +259,7 @@ HTML = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name
 <p class="kicker">Mac LLM/VLM Inference Testing</p>
 <h1>How far can a 16 GB MacBook go? Benchmarking Qwen3.5 from 0.8B to 9B</h1>
 <p class="sub">{datetime.date.today().strftime('%B %d, %Y')} · Apple M5 MacBook Pro, 16 GB · MLX · {tag_n:,} measured inferences · about 15 min read</p>
+<p class="sub links"><a href="https://github.com/azminewasi/MacBook-Pro-LLM-VLM-Inference-Benchmarking">Code on GitHub</a> · <a class="selfblog" href="https://azminewasi.github.io/blog/mac-llm-inference-benchmark.html">Blog version</a> · <a class="selfrep" href="https://github.com/azminewasi/MacBook-Pro-LLM-VLM-Inference-Benchmarking/blob/main/results/report.html">report.html source</a> · Companion: <a href="https://github.com/azminewasi/Mac-LVLM-PostTrain-Benchmarking">post-training repo</a> · <a href="https://azminewasi.github.io/blog/mac-post-training-gsm8k.html">GSM8K post</a> · <a href="https://azminewasi.github.io/blog/mac-post-training-math-story.html">math-story post</a></p>
 
 <h2 id="aim">The question</h2>
 <p class="lede">Local models are good enough now that "can I run this on my laptop?" is a real question. But the answers people give are usually anecdotes: it "runs", it "feels fast". We wanted numbers, for every model size we could fit, and for the part that is easy to overlook: what the model does when you let it <i>think</i>.</p>

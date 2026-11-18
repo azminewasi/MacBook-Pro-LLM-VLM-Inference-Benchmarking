@@ -50,3 +50,6 @@ Times are local and approximate where marked `~`. Data: `results/` (per-sample `
 1. A control arm for the mitigation experiment (re-run with the original settings).
 2. Batched generation throughput (Q4) and a powermetrics run for watts (Q5).
 3. Cross-link with the post-training project (same models, same machine).
+
+## 2026-11-18 (evening): cleanup
+- Deleted the local `logs/` directory (earlier entries that mention files under `logs/` refer to files that no longer exist), local W&B caches and the Hugging Face model cache. Kept: per-inference results, summaries, reports and this journal.
