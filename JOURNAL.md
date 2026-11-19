@@ -53,10 +53,3 @@ Times are local and approximate where marked `~`. Data: `results/` (per-sample `
 
 ## 2026-11-18 (evening): cleanup
 - Deleted the local `logs/` directory (earlier entries that mention files under `logs/` refer to files that no longer exist), local W&B caches and the Hugging Face model cache. Kept: per-inference results, summaries, reports and this journal.
-
-## 2026-11-18 (night): vision arm added (not yet run)
-- **Decision:** add a spatial-reasoning vision arm to the inference project so the base models can be compared with the post-training runs on the same task. Dataset: SpatialEval spatial-map (small, 4-option multiple choice, exact labels); the 100 evaluation questions are the same ones used in `../post-train-testing` (checked: identical ids), same prompt and strict scoring.
-- **Design:** `bench.py --tasks spatial_vision`, separate result files (`<tag>-spatial`), thinking off (cap 640) and on (cap 2048), 4 models (0.8B, 2B, 4B, 9B 4-bit). `scripts/05_run_vision.sh`. The existing benchmark, results and report are untouched.
-- **Scheduling:** not run yet: the post-training queue is using the GPU, and two model jobs at once crash each other (see the post-training journal). It starts after that queue finishes.
-- **Untested:** the new code path has only been compiled, not executed.
-

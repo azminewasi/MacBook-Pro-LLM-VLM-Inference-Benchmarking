@@ -1,6 +1,5 @@
-"""Benchmark Qwen3.5 on Apple Silicon (MLX): GSM8K (text) + AI2D (vision), thinking on/off; optional spatial-reasoning vision arm.
-Usage: python bench.py --model Qwen/Qwen3.5-0.8B --tag 0.8B [--n 100] [--tasks gsm8k_text,ai2d_vision]
-       python bench.py --model Qwen/Qwen3.5-0.8B --tag 0.8B-spatial --tasks spatial_vision      # SpatialEval spatial-map, the same 100 eval questions as the post-training project
+"""Benchmark Qwen3.5 on Apple Silicon (MLX): GSM8K (text) + AI2D (vision), thinking on/off.
+Usage: python bench.py --model Qwen/Qwen3.5-0.8B --tag 0.8B [--n 100]
 Per-sample records go to results/<tag>.jsonl (resumable) and to wandb (online)."""
 import argparse, json, os, re, subprocess, threading, time, io
 import psutil, mlx.core as mx
@@ -14,7 +13,6 @@ ap.add_argument("--model", required=True); ap.add_argument("--tag", required=Tru
 ap.add_argument("--n", type=int, default=100); ap.add_argument("--project", default="macbook-llm-inference")
 ap.add_argument("--dtype", default="bf16")
 ap.add_argument("--think-only", action="store_true"); ap.add_argument("--cap-mult", type=int, default=1)
-ap.add_argument("--tasks", default="gsm8k_text,ai2d_vision", help="comma-separated: gsm8k_text, ai2d_vision, spatial_vision")
 args = ap.parse_args()
 os.makedirs("results", exist_ok=True); os.makedirs("tmp", exist_ok=True)
 OUT = f"results/{args.tag}.jsonl"
@@ -65,22 +63,6 @@ def load_ai2d(n):
         out.append(dict(id=i, q=q, img=p, gold=L[int(r["answer"])]))
     return out
 
-SPATIAL_INSTR = "\nThink step by step, then end with a final line: 'The answer is: <letter>'"
-def load_spatial(n, seed=0, n_train=500):
-    """SpatialEval spatial-map (4-option multiple choice on a map image). Same sampling as ../post-train-testing (pt/vision.py): a seeded sample of 600
-    of the 1,500 questions, the last 100 are the evaluation set, so the numbers are directly comparable with the post-training project. Images at 448 px."""
-    import random, pandas as pd
-    from huggingface_hub import hf_hub_download
-    from PIL import Image
-    df = pd.read_parquet(hf_hub_download("MilaWang/SpatialEval", "vqa/test-00000-of-00002.parquet", repo_type="dataset"))
-    df = df[df.id.str.startswith("spatialmap")].reset_index(drop=True)
-    idx = random.Random(seed).sample(range(len(df)), n_train + 100)[n_train:][:n]; out = []
-    for i in idx:
-        r = df.iloc[i]; im = Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB"); im.thumbnail((448, 448)); p = f"tmp/spatial_{r['id']}.png"; im.save(p)
-        qt = "direction" if "In which direction" in r["text"] else "which_object" if "Which object" in r["text"] else "count"
-        out.append(dict(id=r["id"], q=r["text"] + SPATIAL_INSTR, img=p, gold=r["oracle_option"], qtype=qt))
-    return out
-
 def strip_think(t):
     return t.split("</think>")[-1] if "</think>" in t else (None if "<think>" in t else t)
 def score_gsm(text, gold):
@@ -96,13 +78,6 @@ def score_ai2d(text, gold):
     if a is None: return 0, None
     m = re.search(r"\b([1-4])\b", a)
     p = m.group(1) if m else None
-    return int(p == gold), p
-
-def score_spatial(text, gold):
-    a = strip_think(text)
-    if a is None: return 0, None
-    m = re.findall(r"answer is:?\s*\**\(?([A-D])\b", a, re.I)
-    p = m[-1].upper() if m else None
     return int(p == gold), p
 
 # ---------- model ----------
@@ -134,17 +109,16 @@ def run_one(prompt_text, img, think, max_tokens):
 # ---------- run ----------
 import wandb
 run = wandb.init(project=args.project, name=f"qwen3.5-{args.tag}", reinit=True,
-    tags=[args.tag.split("-")[0], args.dtype, "inference", "8x-thinking" if args.cap_mult > 1 else "main-benchmark"] + (["spatial-vision"] if "spatial_vision" in args.tasks else []), config=dict(
-    model=args.model, tag=args.tag, n=args.n, tasks=args.tasks, dtype=args.dtype, cap_mult=args.cap_mult, backend="mlx", mlx=mx.__version__,
+    tags=[args.tag.split("-")[0], args.dtype, "inference", "8x-thinking" if args.cap_mult > 1 else "main-benchmark"], config=dict(
+    model=args.model, tag=args.tag, n=args.n, dtype=args.dtype, cap_mult=args.cap_mult, backend="mlx", mlx=mx.__version__,
     chip="Apple M5", ram_gb=16, load_time_s=load_s, load_mem_gb=load_mem))
 wandb.define_metric("sample_idx")
 done = set()
 if os.path.exists(OUT):
     for l in open(OUT): d = json.loads(l); done.add((d["task"], d["thinking"], d["id"]))
 fout = open(OUT, "a")
-LOADERS = {"gsm8k_text": lambda: (load_gsm(args.n), None, score_gsm), "ai2d_vision": lambda: (load_ai2d(args.n), True, score_ai2d), "spatial_vision": lambda: (load_spatial(args.n), True, score_spatial)}
-tasks = {t: LOADERS[t]() for t in args.tasks.split(",")}
-CAP = {("gsm8k_text", False): 512, ("gsm8k_text", True): 3072, ("ai2d_vision", False): 32, ("ai2d_vision", True): 2048, ("spatial_vision", False): 640, ("spatial_vision", True): 2048}
+tasks = {"gsm8k_text": (load_gsm(args.n), None, score_gsm), "ai2d_vision": (load_ai2d(args.n), True, score_ai2d)}
+CAP = {("gsm8k_text", False): 512, ("gsm8k_text", True): 3072, ("ai2d_vision", False): 32, ("ai2d_vision", True): 2048}
 GSM_SUFFIX = "\nSolve step by step. End with a final line: 'The answer is: <number>'."
 rows = []
 for task, (data, has_img, scorer) in tasks.items():
@@ -156,7 +130,7 @@ for task, (data, has_img, scorer) in tasks.items():
             q = s["q"] + (GSM_SUFFIX if task == "gsm8k_text" else "")
             text, m = run_one(q, s.get("img"), think, CAP[(task, think)] * args.cap_mult)
             ok, pred = scorer(text, s["gold"]); cum += ok
-            rec = dict(model=args.tag, task=task, thinking=think, id=s["id"], correct=ok, pred=pred, gold=s["gold"], response=text, **({"qtype": s["qtype"]} if "qtype" in s else {}), **m)
+            rec = dict(model=args.tag, task=task, thinking=think, id=s["id"], correct=ok, pred=pred, gold=s["gold"], response=text, **m)
             fout.write(json.dumps(rec) + "\n"); fout.flush()
             wandb.log({f"{task}/think={think}/{k}": v for k, v in m.items() if isinstance(v, (int, float)) and v is not None}
                       | {f"{task}/think={think}/correct": ok, f"{task}/think={think}/running_acc": cum / step})
@@ -165,7 +139,7 @@ for task, (data, has_img, scorer) in tasks.items():
 # ---------- summary ----------
 import pandas as pd
 df = pd.DataFrame([json.loads(l) for l in open(OUT)])
-num = df.select_dtypes("number").columns.drop(["id"], errors="ignore")
+num = df.select_dtypes("number").columns.drop(["id"])
 summ = df.groupby(["task", "thinking"])[list(num)].mean().rename(columns={"correct": "accuracy"})
 summ["n"] = df.groupby(["task", "thinking"]).size()
 summ.to_csv(f"results/{args.tag}_summary.csv")

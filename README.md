@@ -24,8 +24,6 @@ quality, speed, memory and system load for every single inference, and logging e
   Samples that hit the cap without answering count as wrong, and the truncation rate is reported.
 - Post-training (SFT, GRPO, RLOO, GSPO) lives in the companion project, [Mac LLM/VLM post-training benchmarking](https://github.com/azminewasi/Mac-LVLM-PostTrain-Benchmarking).
 
-**Vision arm (spatial reasoning, added later):** `scripts/05_run_vision.sh` runs the four models on SpatialEval spatial-map (4-option multiple choice on map images: relative direction, which object, how many), the same 100 evaluation questions, prompt and strict scoring as the post-training project (`--tasks spatial_vision`; thinking off with a 640-token cap and thinking on with 2,048; images at 448 px). Results go to separate files (`results/<tag>-spatial.*`), so the main benchmark and its report are unchanged. Status: code added; runs scheduled after the post-training experiments finish.
-
 ## Metrics (logged per sample, aggregated per model/task/mode)
 | Group | Metrics |
 |---|---|
@@ -76,7 +74,6 @@ scripts/
   01_run_main.sh       main benchmark, 400 inferences/model, 0.8B -> 2B -> 4B -> 9B (4-bit)
   02_run_8x.sh         long-thinking runs (8x token caps, 20 samples/task); optional args select models
   03_run_mitigate.sh      mitigation experiment, 10 samples per task (run after 01/02); logs to W&B project macbook-llm-mitigation
-  05_run_vision.sh     vision arm: SpatialEval spatial-map, 100 questions per model (separate result files)
   04_cleanup.sh        dry-run by default; --yes deletes tmp/, models/, wandb/ and the HF model cache
   common.sh            shared helpers (skip-if-finished, 9B conversion)
 analysis/make_report.py  builds results/report.html (inline-SVG charts + tables, no extra dependencies)
