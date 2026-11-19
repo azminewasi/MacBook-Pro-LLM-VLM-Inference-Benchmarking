@@ -156,6 +156,5 @@ table.dense{font-size:12px}table.dense td,table.dense th{padding:5px 7px}ul{padd
 <li>Latency, tokens and memory columns are averages over the samples of that cell; Peak GB, RAM and Swap are maxima; Therm. limit is the minimum.</li>
 <li>The 9B was converted to 4-bit (group size 64) because bf16 (19 GB) does not fit in 16 GB, so it is not an apples-to-apples precision comparison with the other three.</li>
 <li>Sampling at T=0.6 makes thinking-on numbers vary run to run.</li>
-<li>Every number here is computed from the per-sample records in <code>results/</code>; <code>python analysis/make_report.py</code> regenerates this page. Console and W&amp;B logs hold the full per-sample metrics.</li>
 </ul>
 </main></body></html>
